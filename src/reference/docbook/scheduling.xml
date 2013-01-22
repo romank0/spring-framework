@@ -851,7 +851,7 @@ public class ExampleJob extends QuartzJobBean {
 
       <para>Find below a couple of examples:</para>
 
-      <programlisting language="xml">&lt;bean id="simpleTrigger" class="org.springframework.scheduling.quartz.SimpleTriggerBean"&gt;
+      <programlisting language="xml">&lt;bean id="simpleTrigger" class="org.springframework.scheduling.quartz.SimpleTriggerFactoryBean"&gt;
     &lt;!-- see the example of method invoking job above --&gt;
     &lt;property name="jobDetail" ref="jobDetail" /&gt;
     &lt;!-- 10 seconds --&gt;
