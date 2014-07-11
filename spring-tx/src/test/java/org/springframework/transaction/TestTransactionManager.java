@@ -18,6 +18,7 @@ package org.springframework.transaction;
 
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 /**
  * @author Juergen Hoeller
@@ -26,7 +27,38 @@ import org.springframework.transaction.support.DefaultTransactionStatus;
 @SuppressWarnings("serial")
 class TestTransactionManager extends AbstractPlatformTransactionManager {
 
-	private static final Object TRANSACTION = "transaction";
+	private static final Object SAVEPOINT = "savepoint";
+	
+	private final Object TRANSACTION = new SimpleTransactionStatus() {
+		
+		@Override
+		public void rollbackToSavepoint(Object savepoint) throws TransactionException {
+			if (savepoint == SAVEPOINT) {
+				TestTransactionManager.this.savepointRollback = true;
+			}
+		}
+		
+		@Override
+		public void releaseSavepoint(Object savepoint) throws TransactionException {
+			if (savepoint == SAVEPOINT) {
+				TestTransactionManager.this.savepointRelease = true;
+			}
+		}
+		
+		@Override
+		public Object createSavepoint() throws TransactionException {
+			TestTransactionManager.this.savepointRelease = false;
+			TestTransactionManager.this.savepointRollback = false;
+			TestTransactionManager.this.savepoint = true;
+			return SAVEPOINT;
+		}
+
+		@Override
+		public boolean hasSavepoint() {
+			return TestTransactionManager.this.savepoint && !TestTransactionManager.this.savepointRelease;
+		}		
+		
+	};
 
 	private final boolean existingTransaction;
 
@@ -39,6 +71,12 @@ class TestTransactionManager extends AbstractPlatformTransactionManager {
 	protected boolean rollback = false;
 
 	protected boolean rollbackOnly = false;
+	
+	protected boolean savepoint = false;
+	
+	protected boolean savepointRelease = false;
+	
+	protected boolean savepointRollback = false;
 
 	protected TestTransactionManager(boolean existingTransaction, boolean canCreateTransaction) {
 		this.existingTransaction = existingTransaction;
