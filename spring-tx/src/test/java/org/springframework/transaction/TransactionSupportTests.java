@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2012 the original author or authors.
+ * Copyright 2002-2014 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,11 +24,15 @@ import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static org.springframework.transaction.TransactionDefinition.*;
+
 /**
  * @author Juergen Hoeller
  * @since 29.04.2003
  */
 public class TransactionSupportTests extends TestCase {
+
+	private static final DefaultTransactionDefinition NESTED = new DefaultTransactionDefinition(PROPAGATION_NESTED);
 
 	public void testNoExistingTransaction() {
 		PlatformTransactionManager tm = new TestTransactionManager(false, true);
@@ -114,6 +118,17 @@ public class TransactionSupportTests extends TestCase {
 		assertTrue("no rollbackOnly", !tm.rollbackOnly);
 	}
 
+	public void testGetNestedTransaction() {
+		TestTransactionManager tm = new TestTransactionManager(true, true);
+		tm.setNestedTransactionAllowed(true);
+		tm.getTransaction(NESTED);
+		assertTrue("no begin", !tm.begin);
+		assertTrue("no commit", !tm.commit);
+		assertTrue("savepoint created", tm.savepoint);
+		assertTrue("no savepoint release", !tm.savepointRelease);
+		assertTrue("no savepoint rollback", !tm.savepointRollback);
+	}
+
 	public void testRollbackWithExistingTransaction() {
 		TestTransactionManager tm = new TestTransactionManager(true, true);
 		TransactionStatus status = tm.getTransaction(null);
@@ -135,6 +150,48 @@ public class TransactionSupportTests extends TestCase {
 		assertTrue("triggered rollbackOnly", tm.rollbackOnly);
 	}
 
+	public void testCommitOfNestedTransaction() {
+		TestTransactionManager tm = new TestTransactionManager(true, true);
+		tm.setNestedTransactionAllowed(true);
+		DefaultTransactionStatus status = (DefaultTransactionStatus) tm.getTransaction(NESTED);
+		tm.commit(status);
+		assertTrue("no begin", !tm.begin);
+		assertTrue("no commit", !tm.commit);
+		assertTrue("no rollback", !tm.rollback);
+		assertTrue("no rollbackOnly", !tm.rollbackOnly);
+		assertTrue("no savepoint rollback", !tm.savepointRollback);
+		assertTrue("savepoint release triggered", tm.savepointRelease);
+		assertTrue("savepoint create triggered", tm.savepoint);
+	}
+
+	public void testRollbackOfNestedTransaction() {
+		TestTransactionManager tm = new TestTransactionManager(true, true);
+		tm.setNestedTransactionAllowed(true);
+		DefaultTransactionStatus status = (DefaultTransactionStatus) tm.getTransaction(NESTED);
+		tm.rollback(status);
+		assertTrue("no begin", !tm.begin);
+		assertTrue("no commit", !tm.commit);
+		assertTrue("no rollback", !tm.rollback);
+		assertTrue("no rollbackOnly", !tm.rollbackOnly);
+		assertTrue("savepoint rollback triggered", tm.savepointRollback);
+		assertTrue("savepoint release triggered", tm.savepointRelease);
+		assertTrue("savepoint create triggered", tm.savepoint);
+	}
+
+	public void testRollbackOnlyOfNestedTransaction() {
+		TestTransactionManager tm = new TestTransactionManager(true, true);
+		tm.setNestedTransactionAllowed(true);
+		DefaultTransactionStatus status = (DefaultTransactionStatus) tm.getTransaction(NESTED);
+		status.setRollbackOnly();
+		tm.commit(status);
+		assertTrue("no begin", !tm.begin);
+		assertTrue("no commit", !tm.commit);
+		assertTrue("no rollback", !tm.rollback);
+		assertTrue("savepoint rollback triggered", tm.savepointRollback);
+		assertTrue("savepoint release triggered", tm.savepointRelease);
+		assertTrue("savepoint create triggered", tm.savepoint);
+	}
+
 	public void testTransactionTemplate() {
 		TestTransactionManager tm = new TestTransactionManager(false, true);
 		TransactionTemplate template = new TransactionTemplate(tm);
@@ -145,8 +202,55 @@ public class TransactionSupportTests extends TestCase {
 		});
 		assertTrue("triggered begin", tm.begin);
 		assertTrue("triggered commit", tm.commit);
+		assertTrue("no savepoint", !tm.savepoint);
 		assertTrue("no rollback", !tm.rollback);
 		assertTrue("no rollbackOnly", !tm.rollbackOnly);
+	}
+
+	public void testTransactionTemplateWithNestedTransaction() {
+		TestTransactionManager tm = new TestTransactionManager(true, true);
+		tm.setNestedTransactionAllowed(true);
+		TransactionTemplate template = new TransactionTemplate(tm);
+		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+		template.execute(new TransactionCallbackWithoutResult() {
+			@Override
+			protected void doInTransactionWithoutResult(TransactionStatus status) {
+			}
+		});
+		assertTrue("triggered begin", !tm.begin);
+		assertTrue("triggered commit", !tm.commit);
+		assertTrue("savepoint was created", tm.savepoint);
+		assertTrue("no savepoint rollback", !tm.savepointRollback);
+		assertTrue("savepoint release triggered", tm.savepointRelease);
+		assertTrue("savepoint create triggered", tm.savepoint);
+	}
+
+	public void testTransactionTemplateWithExceptionInNestedTransaction() {
+		TestTransactionManager tm = new TestTransactionManager(true, true);
+		tm.setNestedTransactionAllowed(true);
+		TransactionTemplate template = new TransactionTemplate(tm);
+		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+		final RuntimeException ex = new RuntimeException("Some application exception");
+		try {
+			template.execute(new TransactionCallbackWithoutResult() {
+				@Override
+				protected void doInTransactionWithoutResult(TransactionStatus status) {
+					throw ex;
+				}
+			});
+			fail("Should have propagated RuntimeException");
+		}
+		catch (RuntimeException caught) {
+			// expected
+			assertTrue("Correct exception", caught == ex);
+			assertTrue("no begin", !tm.begin);
+			assertTrue("no commit", !tm.commit);
+			assertTrue("no rollback", !tm.rollback);
+			assertTrue("no rollbackOnly", !tm.rollbackOnly);
+			assertTrue("savepoint rollback triggered", tm.savepointRollback);
+			assertTrue("savepoint release triggered", tm.savepointRelease);
+			assertTrue("savepoint create triggered", tm.savepoint);
+		}
 	}
 
 	public void testTransactionTemplateWithCallbackPreference() {
